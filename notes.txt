@@ -1,0 +1,67 @@
+/*
+ * props file will have SFTP host URL, SFTP user, path-to-key-file, 
+ * SFTP client to download XML files
+ * need to process XML to get item barcode, reading room, note
+ * retrieve location ID, Voyager key, patron barcode from props file
+ * lookup bibId, copy, itemId, mfhdId from item barcode
+ * build request XML
+ * need WS client to POST request to Voyager
+ * 
+ * load props
+ * connect to sftp
+ * check for files in srlf directory
+ * for each file do:
+ *    read file
+ *    retrieve values per sql below
+ *    build request xml
+ *    POST request to Tomcat
+ * done
+ * 
+select
+  i.item_id,
+  i.copy_number,
+  bi.bib_id,
+  mi.mfhd_id
+from
+  ucladb.item_barcode ib
+  inner join ucladb.item i ON ib.item_id = i.item_id
+  inner join ucladb.mfhd_item mi ON ib.item_id = mi.item_id
+  inner join ucladb.bib_item bi ON ib.item_id = bi.item_id
+where 
+  item_barcode = ?
+
+String uri = "sftp://username:password@hostname:22";
+
+FileObject from = fsManager.resolveFile(uri, options);
+FileObject to = fsManager.resolveFile("/tmp", options);
+to.copyFrom(from, new AllFileSelector());
+ */
+
+  //check for files in paging directory
+  //if ( download( props.getProperty( "sftp.directory.remote" ) ) )
+  //{
+  //}
+  /*private static void getSftpConnect()
+  {
+    try
+    {
+      opts = new FileSystemOptions();
+      SftpFileSystemConfigBuilder.getInstance().setStrictHostKeyChecking( opts,
+                                                                          "no" );
+      keyFile = new File( props.getProperty( "keyfile.path" ) );
+      SftpFileSystemConfigBuilder.getInstance().setIdentities( opts,
+                                                               new File[]
+          { keyFile } );
+      fsManager = VFS.getManager();
+    }
+    catch ( FileSystemException fse )
+    {
+      System.out.println( "problem with sftp connect: " +
+                          fse.getMessage() );
+      fse.printStackTrace();
+      System.exit( -2 );
+    }
+  }
+
+*/
+

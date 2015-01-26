@@ -1,9 +1,12 @@
 package edu.ucla.library.libservices.aeon.callslip.tests;
 
-import edu.ucla.library.libservices.aeon.callslip.xml.UploadWriter;
+import edu.ucla.library.libservices.aeon.callslip.xml.DownloadReader;
+
+import java.io.File;
 
 public class Tester
 {
+
   public Tester()
   {
     super();
@@ -11,8 +14,12 @@ public class Tester
 
   public static void main( String[] args )
   {
-    UploadWriter writer;
-    writer = new UploadWriter();
-    writer.getRequestBody();
+    DownloadReader reader;
+    File theFile;
+    
+    theFile = new File( "C:\\Temp\\aeon\\download\\UCLA-1084-pull.txt" );
+    reader = new DownloadReader();
+    reader.setTheFile( theFile );
+    reader.getTheRequest();
   }
 }

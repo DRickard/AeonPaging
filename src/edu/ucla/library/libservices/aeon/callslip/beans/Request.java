@@ -5,6 +5,7 @@ public class Request
   private String barcode;
   private String library;
   private String note;
+  private String reqID;
   
   public Request()
   {
@@ -39,5 +40,15 @@ public class Request
   public String getNote()
   {
     return note;
+  }
+
+  public void setReqID( String reqID )
+  {
+    this.reqID = reqID;
+  }
+
+  public String getReqID()
+  {
+    return reqID;
   }
 }

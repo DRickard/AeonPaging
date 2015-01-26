@@ -10,6 +10,7 @@ public class Item
   public Item()
   {
     super();
+    bibID = -1;
   }
 
   public void setItemID( int itemID )

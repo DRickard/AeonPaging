@@ -5,6 +5,8 @@ import com.sun.jersey.api.client.WebResource;
 
 import edu.ucla.library.libservices.aeon.callslip.xml.UploadWriter;
 
+import java.io.PrintStream;
+
 public class SendRequestClient
 {
   private Client client;
@@ -16,13 +18,24 @@ public class SendRequestClient
   {
     super();
   }
-  
-  public void postCallSlip()
+
+  public String postCallSlip()
   {
-    client = Client.create();
-    webResource =
-        client.resource( getRequetURL() );
-    webResource.post( String.class, writer.getRequestBody() );
+    String response;
+  
+    try
+    {
+      client = Client.create();
+      webResource = client.resource( getRequetURL() );
+      response = webResource.post( String.class, writer.getRequestBody() );
+      return response;
+    }
+    catch ( Exception e )
+    {
+      System.out.println( "in postCallSlip: " + e.getMessage() );
+      e.printStackTrace();
+      return null;
+    }
   }
 
   public void setWriter( UploadWriter writer )

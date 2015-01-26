@@ -4,10 +4,12 @@ import edu.ucla.library.libservices.aeon.callslip.beans.Item;
 import edu.ucla.library.libservices.aeon.callslip.beans.Patron;
 
 import edu.ucla.library.libservices.aeon.callslip.beans.Request;
+import edu.ucla.library.libservices.aeon.callslip.beans.SftpUserInfo;
 import edu.ucla.library.libservices.aeon.callslip.db.mappers.ItemMapper;
 import edu.ucla.library.libservices.aeon.callslip.db.mappers.PatronMapper;
 import edu.ucla.library.libservices.aeon.callslip.db.source.DataSourceFactory;
 
+import edu.ucla.library.libservices.aeon.callslip.email.ErrorMailer;
 import edu.ucla.library.libservices.aeon.callslip.webclients.SendRequestClient;
 import edu.ucla.library.libservices.aeon.callslip.xml.DownloadReader;
 
@@ -22,6 +24,8 @@ import java.util.Properties;
 
 import javax.sql.DataSource;
 
+import org.springframework.jdbc.core.JdbcTemplate;
+
 import org.apache.commons.vfs2.AllFileSelector;
 import org.apache.commons.vfs2.FileObject;
 import org.apache.commons.vfs2.FileSystemException;
@@ -31,18 +35,16 @@ import org.apache.commons.vfs2.VFS;
 import org.apache.commons.vfs2.provider.local.LocalFile;
 import org.apache.commons.vfs2.provider.sftp.SftpFileSystemConfigBuilder;
 
-import org.springframework.jdbc.core.JdbcTemplate;
-
 public class ProcessCallslip
 {
-  private static Properties props;
+  private static DataSource ds;
   private static File keyFile;
   private static FileObject src = null;
   private static FileSystemManager fsManager = null;
   private static FileSystemOptions opts = null;
-  private static Patron yrl = null; //barcode = 28285
   private static Patron bio = null; //barcode = 21158000008590
-  private static DataSource ds;
+  private static Patron yrl = null; //barcode = 28285
+  private static Properties props;
 
   private static final String ITEM_QUERY =
     "SELECT i.item_id,i.copy_number,bi.bib_id,mi.mfhd_id FROM " +
@@ -66,8 +68,7 @@ public class ProcessCallslip
     //get sftp connection
     getSftpConnect();
 
-    //check for files in paging directory
-    if ( download( props.getProperty( "sftp.directory.remote" ) ) )
+    if ( downloadFiles() )
     {
       File localDir;
       File[] files;
@@ -80,21 +81,74 @@ public class ProcessCallslip
 
       localDir = new File( props.getProperty( "sftp.directory.local" ) );
       files = localDir.listFiles();
-      
-      for ( File theFile : files )
+
+      if ( files != null && files.length != 0 )
       {
-        Item theItem;
-        Request thePull;
-        SendRequestClient theClient;
-        UploadWriter writer;
-        
-        thePull = getReqFromFile(theFile);
-        theItem = getItem(thePull.getBarcode());
-        writer = setupWriter(thePull, theItem);
-        theClient = new SendRequestClient();
-        theClient.setRequetURL( props.getProperty( "voyager.url" ) );
-        theClient.setWriter( writer );
-        theClient.postCallSlip();
+        for ( File theFile: files )
+        {
+          Item theItem;
+          Request thePull;
+          SendRequestClient theClient;
+          String result;
+          UploadWriter writer;
+
+          try
+          {
+            System.out.println( "in main; working with file " + theFile.getName() );
+            thePull = getReqFromFile( theFile );
+            if ( thePull.getBarcode() == null || thePull.getBarcode().equals( "" ) )
+            {
+              System.out.println( "file error message" );
+              mailError( "file", theFile.getName(), thePull.getReqID(), true );
+              removeFile( theFile );
+              theFile.delete();
+              continue;
+            }
+            
+            theItem = getItem( thePull.getBarcode() );
+            if ( theItem == null || theItem.getBibID() == -1 )
+            {
+              System.out.println( "item error message" );
+              mailError( "db", thePull.getBarcode(), thePull.getReqID(), true );
+              removeFile( theFile );
+              theFile.delete();
+              continue;
+            }
+
+            writer = setupWriter( thePull, theItem );
+            theClient = new SendRequestClient();
+            theClient.setRequetURL( props.getProperty( "voyager.url" ) );
+            theClient.setWriter( writer );
+            result = theClient.postCallSlip();
+            System.out.println( "result = \n" + result );
+            if ( result.toLowerCase().contains( "type=\"error\"" ) )
+            {
+              System.out.println( "mailing error message" );
+              mailError( "error", thePull.getBarcode(), thePull.getReqID(),
+                         thePull.getLibrary().contains( "YRL" ) );
+              removeFile( theFile );
+              theFile.delete();
+            }
+            else if ( result.toLowerCase().contains( "type=\"blocked\"" ) )
+            {
+              System.out.println( "block error message" );
+              mailError( "block", thePull.getBarcode(), thePull.getReqID(),
+                         thePull.getLibrary().contains( "YRL" ) );
+              removeFile( theFile );
+              theFile.delete();
+            }
+            else
+            {
+              removeFile( theFile );
+              theFile.delete();
+            }
+          }
+          catch ( Exception e )
+          {
+            e.printStackTrace();
+            System.out.println( "error in ProcessCallslip.main:\t" + e.getMessage() );
+          }
+        }
       }
     }
   }
@@ -103,7 +157,7 @@ public class ProcessCallslip
   {
     Request thePull;
     DownloadReader theReader;
-    
+
     theReader = new DownloadReader();
     theReader.setTheFile( theFile );
     thePull = theReader.getTheRequest();
@@ -120,8 +174,63 @@ public class ProcessCallslip
     catch ( IOException ioe )
     {
       System.out.println( "problem with props file: " + ioe.getMessage() );
+      ioe.printStackTrace();
       System.exit( -1 );
     }
+  }
+
+  private static void makeDbConnection()
+  {
+    ds = DataSourceFactory.createVgerSource( props );
+  }
+
+  private static void buildPatrons()
+  {
+    yrl =
+        ( Patron ) new JdbcTemplate( ds ).queryForObject( PATRON_QUERY, new Object[]
+          { props.getProperty( "patron.yrl" ) }, new PatronMapper() );
+    bio =
+        ( Patron ) new JdbcTemplate( ds ).queryForObject( PATRON_QUERY, new Object[]
+          { props.getProperty( "patron.bio" ) }, new PatronMapper() );
+  }
+
+  private static Item getItem( String barcode )
+  {
+    Item bean;
+    try
+    {
+      bean =
+          ( Item ) new JdbcTemplate( ds ).queryForObject( ITEM_QUERY, new Object[]
+            { barcode }, new ItemMapper() );
+    }
+    catch (Exception e)
+    {
+      System.out.println( e.getMessage() );
+      bean = new Item();
+    }
+    return bean;
+  }
+
+  private static UploadWriter setupWriter( Request thePull, Item theItem )
+  {
+    UploadWriter local;
+    local = new UploadWriter();
+
+    local.setComment( thePull.getNote() );
+    local.setDbID( props.getProperty( "voyager.dbkey" ) );
+    if ( thePull.getLibrary().contains( "YRL" ) )
+    {
+      local.setPickUp( props.getProperty( "pickup.yrl" ) );
+      local.setThePatron( yrl );
+    }
+    else
+    {
+      local.setPickUp( props.getProperty( "pickup.bio" ) );
+      local.setThePatron( bio );
+    }
+    local.setTheItem( theItem );
+
+    return local;
   }
 
   private static void getSftpConnect()
@@ -131,6 +240,8 @@ public class ProcessCallslip
       opts = new FileSystemOptions();
       SftpFileSystemConfigBuilder.getInstance().setStrictHostKeyChecking( opts,
                                                                           "no" );
+      SftpFileSystemConfigBuilder.getInstance().setUserInfo( opts,
+                                                             new SftpUserInfo() );
       keyFile = new File( props.getProperty( "keyfile.path" ) );
       SftpFileSystemConfigBuilder.getInstance().setIdentities( opts,
                                                                new File[]
@@ -141,17 +252,20 @@ public class ProcessCallslip
     {
       System.out.println( "problem with sftp connect: " +
                           fse.getMessage() );
+      fse.printStackTrace();
       System.exit( -2 );
     }
   }
 
-  private static boolean download( String directory )
+  private static boolean downloadFiles()
   {
     FileObject[] children;
     FileObject sftpFile;
     String startPath;
 
-    startPath = "sftp://" + props.getProperty( "sftp.host" ) + directory;
+    startPath =
+        "sftp://" + props.getProperty( "sftp.user" ) + "@" + props.getProperty( "sftp.host" ) +
+        "/" + props.getProperty( "sftp.directory.remote" );
     try
     {
       sftpFile = fsManager.resolveFile( startPath, opts );
@@ -185,92 +299,46 @@ public class ProcessCallslip
     {
       System.err.println( "error during download process: " +
                           fse.getMessage() );
+      fse.printStackTrace();
       System.exit( -3 );
     }
     return true;
   }
 
-  private static void makeDbConnection()
+  private static void mailError( String type, String item, String reqID, boolean isYRL )
   {
-    ds = DataSourceFactory.createVgerSource( props );
+    ErrorMailer theMailer;
+
+    theMailer = new ErrorMailer();
+    theMailer.sendMessage( type, item, reqID,
+                           ( isYRL ? props.getProperty( "mail.toaddress.yrl" ):
+                             props.getProperty( "mail.toaddress.bio" ) ) );
   }
 
-  private static void buildPatrons()
+  private static void removeFile( File theFile )
   {
-    yrl =
-        ( Patron ) new JdbcTemplate( ds ).queryForObject( PATRON_QUERY, new Object[]
-          { props.getProperty( "patron.yrl" ) }, new PatronMapper() );
-    bio =
-        ( Patron ) new JdbcTemplate( ds ).queryForObject( PATRON_QUERY, new Object[]
-          { props.getProperty( "patron.bio" ) }, new PatronMapper() );
-  }
+    FileObject sftpFile;
+    String startPath;
 
-  private static Item getItem( String barcode )
-  {
-    Item bean;
-    bean =
-        ( Item ) new JdbcTemplate( ds ).queryForObject( ITEM_QUERY, new Object[]
-          { barcode }, new ItemMapper() );
-    return bean;
-  }
-
-  private static UploadWriter setupWriter( Request thePull, Item theItem )
-  {
-    UploadWriter local;
-    local = new UploadWriter();
-    
-    local.setComment( thePull.getNote() );
-    local.setDbID( props.getProperty( "voyager.dbkey" ) );
-    if ( thePull.getLibrary().equalsIgnoreCase( "YRL" ) )
+    startPath =
+        "sftp://" + props.getProperty( "sftp.user" ) + "@" + props.getProperty( "sftp.host" ) +
+        "/" + props.getProperty( "sftp.directory.remote" );
+    try
     {
-      local.setPickUp( props.getProperty( "pickup.yrl" ) );
-      local.setThePatron( yrl );
+      sftpFile =
+          fsManager.resolveFile( startPath.concat( "/".concat( theFile.getName() ) ),
+                                 opts );
+      if ( sftpFile.exists() )
+      {
+        sftpFile.delete();
+      }
     }
-    else
+    catch ( FileSystemException fse )
     {
-      local.setPickUp( props.getProperty( "pickup.bio" ) );
-      local.setThePatron( bio );
+      System.err.println( "error during delete process: " +
+                          fse.getMessage() );
+      fse.printStackTrace();
+      System.exit( -4 );
     }
-    local.setTheItem( theItem );
-    
-    return local;
   }
 }
-/*
- * props file will have SFTP host URL, SFTP user, path-to-key-file, 
- * SFTP client to download XML files
- * need to process XML to get item barcode, reading room, note
- * retrieve location ID, Voyager key, patron barcode from props file
- * lookup bibId, copy, itemId, mfhdId from item barcode
- * build request XML
- * need WS client to POST request to Voyager
- * 
- * load props
- * connect to sftp
- * check for files in srlf directory
- * for each file do:
- *    read file
- *    retrieve values per sql below
- *    build request xml
- *    POST request to Tomcat
- * done
- * 
-select
-  i.item_id,
-  i.copy_number,
-  bi.bib_id,
-  mi.mfhd_id
-from
-  ucladb.item_barcode ib
-  inner join ucladb.item i ON ib.item_id = i.item_id
-  inner join ucladb.mfhd_item mi ON ib.item_id = mi.item_id
-  inner join ucladb.bib_item bi ON ib.item_id = bi.item_id
-where 
-  item_barcode = ?
-
-String uri = "sftp://username:password@hostname:22";
-
-FileObject from = fsManager.resolveFile(uri, options);
-FileObject to = fsManager.resolveFile("/tmp", options);
-to.copyFrom(from, new AllFileSelector());
- */

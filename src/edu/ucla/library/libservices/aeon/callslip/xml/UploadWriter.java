@@ -3,28 +3,28 @@ package edu.ucla.library.libservices.aeon.callslip.xml;
 import edu.ucla.library.libservices.aeon.callslip.beans.Item;
 import edu.ucla.library.libservices.aeon.callslip.beans.Patron;
 
-import java.io.File;
+//import java.io.File;
 
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.transform.Result;
-import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerConfigurationException;
-import javax.xml.transform.TransformerException;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
+//import javax.xml.transform.Result;
+//import javax.xml.transform.Transformer;
+//import javax.xml.transform.TransformerConfigurationException;
+//import javax.xml.transform.TransformerException;
+//import javax.xml.transform.TransformerFactory;
+//import javax.xml.transform.dom.DOMSource;
+//import javax.xml.transform.stream.StreamResult;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
-import org.w3c.dom.Node;
-import org.w3c.dom.Text;
+//import org.w3c.dom.Node;
+//import org.w3c.dom.Text;
 
 public class UploadWriter
 {
   private Document requestBody;
-  private Transformer identity;
-  private Result result;
+ // private Transformer identity;
+  //private Result result;
   private Patron thePatron;
   private String dbID;
   private String comment;
@@ -45,23 +45,23 @@ public class UploadWriter
       requestBody =
           DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument();
       root = requestBody.createElement( "ser:serviceParameters" );
-      root.setAttribute( "xmlns:ser",
-                         "http://www.endinfosys.com/Voyager/serviceParameters" );
+      //root.setAttributeNS( "http://www.endinfosys.com/Voyager/serviceParameters", "ser", "ser" );
+      root.setAttribute( "xmlns:ser","http://www.endinfosys.com/Voyager/serviceParameters" );
       requestBody.appendChild( root );
 
       root.appendChild( makeParametersNode() );
       
       root.appendChild( makePatronNode() );
-      identity = TransformerFactory.newInstance().newTransformer();
-      result = new StreamResult( new File( "C:\\Temp\\aeon\\srlf.xml" ) );
-      identity.transform( new DOMSource( requestBody ), result );
+      //identity = TransformerFactory.newInstance().newTransformer();
+      //result = new StreamResult( new File( "C:\\Temp\\aeon\\srlf." + getTheItem().getBibID() + ".xml" ) );
+      //identity.transform( new DOMSource( requestBody ), result );
     }
     catch ( ParserConfigurationException pce )
     {
       pce.printStackTrace();
       requestBody = null;
     }
-    catch ( TransformerConfigurationException tce )
+    /*catch ( TransformerConfigurationException tce )
     {
       tce.printStackTrace();
       requestBody = null;
@@ -70,7 +70,7 @@ public class UploadWriter
     {
       te.printStackTrace();
       requestBody = null;
-    }
+    }*/
     return requestBody;
   }
 
@@ -86,7 +86,7 @@ public class UploadWriter
                                                "CALLSLIP" ) );
     parameters.appendChild( makeParameterNode( "CVAL", "thisCopy" ) );
     parameters.appendChild( makeParameterNode( "requestSiteId",
-                                               getDbID() ) );
+                                               "1@" + getDbID() ) );
     parameters.appendChild( makeParameterNode( "itemId",
                                                String.valueOf( getTheItem().getItemID() ) ) );
     parameters.appendChild( makeParameterNode( "bibId",
@@ -105,7 +105,7 @@ public class UploadWriter
 
     patron = requestBody.createElement( "ser:patronIdentifier" );
     patron.setAttribute( "lastName", getThePatron().getLastName() );
-    patron.setAttribute( "patronHomeUbId", getDbID() );
+    patron.setAttribute( "patronHomeUbId", "1@" + getDbID() );
     patron.setAttribute( "patronId",
                          String.valueOf( getThePatron().getPatronId() ) );
 
