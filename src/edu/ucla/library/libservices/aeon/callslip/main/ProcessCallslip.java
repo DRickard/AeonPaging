@@ -2,29 +2,23 @@ package edu.ucla.library.libservices.aeon.callslip.main;
 
 import edu.ucla.library.libservices.aeon.callslip.beans.Item;
 import edu.ucla.library.libservices.aeon.callslip.beans.Patron;
-
 import edu.ucla.library.libservices.aeon.callslip.beans.Request;
 import edu.ucla.library.libservices.aeon.callslip.beans.SftpUserInfo;
 import edu.ucla.library.libservices.aeon.callslip.db.mappers.ItemMapper;
 import edu.ucla.library.libservices.aeon.callslip.db.mappers.PatronMapper;
 import edu.ucla.library.libservices.aeon.callslip.db.source.DataSourceFactory;
-
 import edu.ucla.library.libservices.aeon.callslip.email.ErrorMailer;
 import edu.ucla.library.libservices.aeon.callslip.webclients.SendRequestClient;
 import edu.ucla.library.libservices.aeon.callslip.xml.DownloadReader;
-
 import edu.ucla.library.libservices.aeon.callslip.xml.UploadWriter;
 
 import java.io.File;
 import java.io.FileInputStream;
-
 import java.io.IOException;
 
 import java.util.Properties;
 
 import javax.sql.DataSource;
-
-import org.springframework.jdbc.core.JdbcTemplate;
 
 import org.apache.commons.vfs2.AllFileSelector;
 import org.apache.commons.vfs2.FileObject;
@@ -34,9 +28,13 @@ import org.apache.commons.vfs2.FileSystemOptions;
 import org.apache.commons.vfs2.VFS;
 import org.apache.commons.vfs2.provider.local.LocalFile;
 import org.apache.commons.vfs2.provider.sftp.SftpFileSystemConfigBuilder;
+import org.apache.log4j.Logger;
+
+import org.springframework.jdbc.core.JdbcTemplate;
 
 public class ProcessCallslip
 {
+  
   private static DataSource ds;
   private static File keyFile;
   private static FileObject src = null;
@@ -46,6 +44,7 @@ public class ProcessCallslip
   private static Patron yrl = null; //barcode = 28285
   private static Properties props;
 
+  final static Logger logger = Logger.getLogger(ProcessCallslip.class);
   private static final String ITEM_QUERY =
     "SELECT i.item_id,i.copy_number,bi.bib_id,mi.mfhd_id FROM " +
     "ucladb.item_barcode ib INNER JOIN ucladb.item i ON ib.item_id = " +
@@ -92,61 +91,72 @@ public class ProcessCallslip
           String result;
           UploadWriter writer;
 
-          try
+          if ( theFile.isFile() )
           {
-            System.out.println( "in main; working with file " + theFile.getName() );
-            thePull = getReqFromFile( theFile );
-            if ( thePull.getBarcode() == null || thePull.getBarcode().equals( "" ) )
+            try
             {
-              System.out.println( "file error message" );
-              mailError( "file", theFile.getName(), thePull.getReqID(), true );
-              removeFile( theFile );
-              theFile.delete();
-              continue;
-            }
-            
-            theItem = getItem( thePull.getBarcode() );
-            if ( theItem == null || theItem.getBibID() == -1 )
-            {
-              System.out.println( "item error message" );
-              mailError( "db", thePull.getBarcode(), thePull.getReqID(), true );
-              removeFile( theFile );
-              theFile.delete();
-              continue;
-            }
+              logger.info( "working with file " +
+                                  theFile.getName() );
+              thePull = getReqFromFile( theFile );
+              if ( thePull.getBarcode() == null ||
+                   thePull.getBarcode().equals( "" ) )
+              {
+                logger.error( "file error occurred" );
+                mailError( "file", theFile.getName(), thePull.getReqID(),
+                           true );
+                removeFile( theFile );
+                theFile.renameTo( new File( props.getProperty( "sftp.directory.local" ).concat( "/error/" ).concat( theFile.getName() ) ) );
+                continue;
+              }
 
-            writer = setupWriter( thePull, theItem );
-            theClient = new SendRequestClient();
-            theClient.setRequetURL( props.getProperty( "voyager.url" ) );
-            theClient.setWriter( writer );
-            result = theClient.postCallSlip();
-            System.out.println( "result = \n" + result );
-            if ( result.toLowerCase().contains( "type=\"error\"" ) )
-            {
-              System.out.println( "mailing error message" );
-              mailError( "error", thePull.getBarcode(), thePull.getReqID(),
-                         thePull.getLibrary().contains( "YRL" ) );
-              removeFile( theFile );
-              theFile.delete();
+              theItem = getItem( thePull.getBarcode() );
+              if ( theItem == null || theItem.getBibID() == -1 )
+              {
+                logger.error( "item retrieval error occurred" );
+                mailError( "db", thePull.getBarcode(), thePull.getReqID(),
+                           true );
+                removeFile( theFile );
+                theFile.renameTo( new File( props.getProperty( "sftp.directory.local" ).concat( "/error/" ).concat( theFile.getName() ) ) );
+                continue;
+              }
+
+              writer = setupWriter( thePull, theItem );
+              theClient = new SendRequestClient();
+              theClient.setRequetURL( props.getProperty( "voyager.url" ) );
+              theClient.setWriter( writer );
+              result = theClient.postCallSlip();
+              logger.info( "result = \n" +
+                  result );
+              if ( result == null || result.toLowerCase().contains( "type=\"error\"" ) )
+              {
+                logger.error( "mailing paging error message" );
+                mailError( "error", thePull.getBarcode(),
+                           thePull.getReqID(),
+                           thePull.getLibrary().contains( "YRL" ) );
+                removeFile( theFile );
+                theFile.renameTo( new File( props.getProperty( "sftp.directory.local" ).concat( "/error/" ).concat( theFile.getName() ) ) );
+              }
+              else if ( result.toLowerCase().contains( "type=\"blocked\"" ) )
+              {
+                logger.error( "mailing paging blocked message" );
+                mailError( "block", thePull.getBarcode(),
+                           thePull.getReqID(),
+                           thePull.getLibrary().contains( "YRL" ) );
+                removeFile( theFile );
+                theFile.renameTo( new File( props.getProperty( "sftp.directory.local" ).concat( "/error/" ).concat( theFile.getName() ) ) );
+              }
+              else
+              {
+                removeFile( theFile );
+                theFile.delete();
+              }
             }
-            else if ( result.toLowerCase().contains( "type=\"blocked\"" ) )
+            catch ( Exception e )
             {
-              System.out.println( "block error message" );
-              mailError( "block", thePull.getBarcode(), thePull.getReqID(),
-                         thePull.getLibrary().contains( "YRL" ) );
-              removeFile( theFile );
-              theFile.delete();
+              //e.printStackTrace();
+              logger.fatal( "fatal error in ProcessCallslip.main" +
+                                  e );
             }
-            else
-            {
-              removeFile( theFile );
-              theFile.delete();
-            }
-          }
-          catch ( Exception e )
-          {
-            e.printStackTrace();
-            System.out.println( "error in ProcessCallslip.main:\t" + e.getMessage() );
           }
         }
       }
@@ -173,8 +183,8 @@ public class ProcessCallslip
     }
     catch ( IOException ioe )
     {
-      System.out.println( "problem with props file: " + ioe.getMessage() );
-      ioe.printStackTrace();
+      logger.fatal( "problem with props file" + ioe );
+      //ioe.printStackTrace();
       System.exit( -1 );
     }
   }
@@ -201,11 +211,11 @@ public class ProcessCallslip
     {
       bean =
           ( Item ) new JdbcTemplate( ds ).queryForObject( ITEM_QUERY, new Object[]
-            { barcode }, new ItemMapper() );
+            { barcode.trim() }, new ItemMapper() );
     }
-    catch (Exception e)
+    catch ( Exception e )
     {
-      System.out.println( e.getMessage() );
+      logger.error( "db problem with item retrieval", e );
       bean = new Item();
     }
     return bean;
@@ -250,9 +260,9 @@ public class ProcessCallslip
     }
     catch ( FileSystemException fse )
     {
-      System.out.println( "problem with sftp connect: " +
-                          fse.getMessage() );
-      fse.printStackTrace();
+      logger.fatal( "problem with sftp connect" +
+                          fse );
+      //fse.printStackTrace();
       System.exit( -2 );
     }
   }
@@ -297,15 +307,16 @@ public class ProcessCallslip
     }
     catch ( FileSystemException fse )
     {
-      System.err.println( "error during download process: " +
-                          fse.getMessage() );
-      fse.printStackTrace();
+      logger.fatal( "error during download process" +
+                          fse );
+      //fse.printStackTrace();
       System.exit( -3 );
     }
     return true;
   }
 
-  private static void mailError( String type, String item, String reqID, boolean isYRL )
+  private static void mailError( String type, String item, String reqID,
+                                 boolean isYRL )
   {
     ErrorMailer theMailer;
 
@@ -335,9 +346,9 @@ public class ProcessCallslip
     }
     catch ( FileSystemException fse )
     {
-      System.err.println( "error during delete process: " +
-                          fse.getMessage() );
-      fse.printStackTrace();
+      logger.fatal( "error during file delete process" +
+                          fse );
+      //fse.printStackTrace();
       System.exit( -4 );
     }
   }

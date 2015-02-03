@@ -2,6 +2,8 @@ package edu.ucla.library.libservices.aeon.callslip.xml;
 
 import edu.ucla.library.libservices.aeon.callslip.beans.Request;
 
+import edu.ucla.library.libservices.aeon.callslip.main.ProcessCallslip;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -14,11 +16,14 @@ import javax.xml.parsers.ParserConfigurationException;
 import org.w3c.dom.Document;
 
 import org.xml.sax.SAXException;
+import org.apache.log4j.Logger;
 
 public class DownloadReader
 {
   private Request theRequest;
   private File theFile;
+
+  final static Logger logger = Logger.getLogger(DownloadReader.class);
 
   public DownloadReader()
   {
@@ -43,26 +48,26 @@ public class DownloadReader
     catch ( ParserConfigurationException pce )
     {
       //pce.printStackTrace();
-      System.out.println( pce.getMessage() );
+      logger.error( "error processing file ".concat( getTheFile().getName() ), pce );
       getAsText();
     }
     catch ( SAXException saxe )
     {
       //saxe.printStackTrace();
-      System.out.println( saxe.getMessage() );
+      logger.error( "error processing file ".concat( getTheFile().getName() ), saxe );
       getAsText();
     }
     catch ( IOException ioe )
     {
       //ioe.printStackTrace();
-      System.out.println( ioe.getMessage() );
+      logger.error( "error processing file ".concat( getTheFile().getName() ), ioe );
     }
     catch ( Exception e )
     {
-      System.out.println( e.getMessage() );
+      logger.error( "error processing file ".concat( getTheFile().getName() ), e );
       getAsText();
     }
-    System.out.println( "in DownloadReader.getTheRequest, barcode = " + theRequest.getBarcode() + "\tlibrary = " + theRequest.getLibrary() + "\tnote = " + theRequest.getNote() );
+    //System.out.println( "in DownloadReader.getTheRequest, barcode = " + theRequest.getBarcode() + "\tlibrary = " + theRequest.getLibrary() + "\tnote = " + theRequest.getNote() );
     return theRequest;
   }
 
@@ -103,15 +108,15 @@ public class DownloadReader
       }
       theRequest.setNote( "Aeon request # " + getAeonNumber() );
       theRequest.setReqID( getAeonNumber() );
-      System.out.println( "in DownloadReader.getAsText, barcode = " + theRequest.getBarcode() + "\tlibrary = " + theRequest.getLibrary() + "\tnote = " + theRequest.getNote() );
+      //System.out.println( "in DownloadReader.getAsText, barcode = " + theRequest.getBarcode() + "\tlibrary = " + theRequest.getLibrary() + "\tnote = " + theRequest.getNote() );
     }
     catch ( FileNotFoundException fnfe )
     {
-      System.out.println( fnfe.getMessage() );
+      logger.error( "error processing file ".concat( getTheFile().getName() ), fnfe );
     }
     catch ( IOException ioe )
     {
-      System.out.println( ioe.getMessage() );
+      logger.error( "error processing file ".concat( getTheFile().getName() ), ioe );
     }
   }
 }
